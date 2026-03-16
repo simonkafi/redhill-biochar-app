@@ -670,12 +670,10 @@
   <div class="card">
     <div class="card-title">Google Sheets sync</div>
     <div class="card-subtitle">One-time setup by project admin</div>
-    <div class="form-group">
-      <label class="form-label">Apps Script URL</label>
-      <input class="form-input" id="sheet-url" type="url" placeholder="https://script.google.com/macros/s/..." style="font-size:13px">
-      <div style="font-size:11px;color:var(--smoke);margin-top:4px">Paste the Web App deployment URL from Google Apps Script</div>
+    <div class="notice notice-success" style="margin-bottom:8px">
+      <span class="notice-icon">✅</span>
+      <span>Connected to Google Sheets · Redhill Biochar Field Data</span>
     </div>
-    <button class="btn btn-primary" onclick="saveSheetUrl()">Save URL</button>
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
       <div class="section-header">Sync status</div>
       <div id="sync-counts" style="font-size:13px;color:var(--smoke);padding:6px 0">Loading...</div>
@@ -810,15 +808,18 @@ const PHONE_CODES = [
 // ══════════════════════════════════
 // INIT
 // ══════════════════════════════════
+// ── HARDCODED SHEETS URL — do not edit ──
+const SHEETS_URL='https://script.google.com/macros/s/AKfycbw4qqkAG2AjHeg3JZNl-gAAZa50YWwSb_HhhhGDWvRQu8JKEv0xMTpA2a3n1oKR43oW/exec';
+
 function init(){
+  // Always set the hardcoded URL — agents cannot change it
+  localStorage.setItem('rh_sheet_url', SHEETS_URL);
   buildCountyCodes();
   buildCounty();
   buildMonthPicker();
   updateDashboard();
   updateOnlineStatus();
   renderCollectionHistory();
-  const saved=localStorage.getItem('rh_sheet_url');
-  if(saved) document.getElementById && null;
 }
 
 function buildCountyCodes(){
@@ -1231,6 +1232,8 @@ function deleteFarmer(id){
   updateDashboard();
   populateCollectionFarmerDropdown();
   toast('🗑️ '+f.name+' deleted');
+  // Tell Sheets to mark this row as deleted
+  sendToSheets('delete_farmer',{id:id,name:f.name}).catch(()=>{});
 }
 
 function openEditFarmer(id){
@@ -1329,6 +1332,7 @@ function saveEditFarmer(id){
   renderFarmerList();
   populateCollectionFarmerDropdown();
   toast('✅ '+farmers[idx].name+' updated');
+  autoSync();
 }
 
 // ══════════════════════════════════
@@ -1376,23 +1380,20 @@ function toast(msg){
 
 
 function saveSheetUrl(){
-  const url=document.getElementById('sheet-url').value.trim();
-  if(!url) return toast('Paste the Apps Script URL first');
-  localStorage.setItem('rh_sheet_url',url);
-  toast('✅ URL saved');
+  // URL is hardcoded — nothing to save
   updateSyncCounts();
 }
 
 function updateSyncCounts(){
-  const urlInput=document.getElementById('sheet-url');
-  const saved=localStorage.getItem('rh_sheet_url')||'';
-  if(urlInput && saved) urlInput.value=saved;
   const uf=DB.farmers.filter(f=>!f.synced).length;
   const uc=DB.collections.filter(c=>!c.synced).length;
   const el=document.getElementById('sync-counts');
   if(!el) return;
-  if(!saved){el.textContent='No URL configured yet.';return}
-  el.innerHTML='URL configured ✅<br>'+uf+' farmer record'+(uf!==1?'s':'')+' pending · '+uc+' collection record'+(uc!==1?'s':'')+' pending';
+  if(uf===0 && uc===0){
+    el.innerHTML='<span style="color:#27ae60">✅ All records synced</span>';
+  } else {
+    el.innerHTML=uf+' farmer record'+(uf!==1?'s':'')+' pending · '+uc+' collection record'+(uc!==1?'s':'')+' pending';
+  }
 }
 
 // Core send function — uses script tag injection to bypass CORS and redirect blocks
@@ -1517,9 +1518,9 @@ async function syncNow(){
 
 // Force re-sync — resets all flags and pushes everything again
 function resetAndSync(){
-  if(!confirm('Re-send all records to Google Sheets?')) return;
+  if(!confirm('Re-send all records to Google Sheets? This will update any edited records.')) return;
+  // Only mark unsynced — don't reset collections (they cannot be updated, only new ones sent)
   DB.farmers=DB.farmers.map(f=>({...f,synced:false}));
-  DB.collections=DB.collections.map(c=>({...c,synced:false}));
   updateSyncCounts();
   setTimeout(syncNow,300);
 }

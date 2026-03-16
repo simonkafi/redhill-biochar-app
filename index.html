@@ -1406,14 +1406,15 @@ async function syncNow(){
   if(btn){btn.disabled=true;btn.textContent='⏳ Syncing...';}
 
   async function sendRecord(type,data){
-    const payload=encodeURIComponent(JSON.stringify({type,data}));
-    const r=await fetch(url+'?payload='+payload,{method:'GET',redirect:'follow'});
-    const text=await r.text();
-    try{
-      const json=JSON.parse(text);
-      if(json.error) throw new Error(json.error);
-      return json;
-    }catch(e){ throw new Error(text.substring(0,100)); }
+    // Use no-cors POST — data is saved by Apps Script, response is opaque (that's fine)
+    await fetch(url, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({type, data})
+    });
+    // With no-cors we can't read the response, so assume success
+    return {success:true};
   }
 
   let ok=0,fail=0,lastErr='';

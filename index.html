@@ -1395,20 +1395,51 @@ function updateSyncCounts(){
   el.innerHTML='URL configured ✅<br>'+uf+' farmer record'+(uf!==1?'s':'')+' pending · '+uc+' collection record'+(uc!==1?'s':'')+' pending';
 }
 
-// Core send function — GET with payload to avoid CORS completely
-async function sendToSheets(type, data){
-  const url=localStorage.getItem('rh_sheet_url');
-  if(!url) return false;
-  // Exclude large photo data from sync payload
-  const d={...data};
-  delete d.photoData;
-  const payload=encodeURIComponent(JSON.stringify({type,data:d}));
-  const r=await fetch(url+'?payload='+payload,{method:'GET',redirect:'follow'});
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  const text=await r.text();
-  const json=JSON.parse(text);
-  if(!json.success) throw new Error(json.error||'Script returned failure');
-  return true;
+// Core send function — uses script tag injection to bypass CORS and redirect blocks
+// This is the only method that works reliably with Google Apps Script from GitHub Pages
+function sendToSheets(type, data){
+  return new Promise((resolve, reject)=>{
+    const url=localStorage.getItem('rh_sheet_url');
+    if(!url){ reject(new Error('No URL')); return; }
+
+    const d={...data};
+    delete d.photoData; // don't send photo data
+
+    // Add unique callback name
+    const cbName='cb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const payload=encodeURIComponent(JSON.stringify({type,data:d}));
+    const fullUrl=url+'?payload='+payload+'&callback='+cbName;
+
+    // Timeout after 15 seconds
+    const timer=setTimeout(()=>{
+      cleanup();
+      reject(new Error('Timeout'));
+    },15000);
+
+    function cleanup(){
+      clearTimeout(timer);
+      delete window[cbName];
+      const s=document.getElementById(cbName);
+      if(s) s.remove();
+    }
+
+    // JSONP callback
+    window[cbName]=function(response){
+      cleanup();
+      if(response && response.success){
+        resolve(response);
+      } else {
+        reject(new Error(response?response.error:'No response'));
+      }
+    };
+
+    // Inject script tag — bypasses all CORS and redirect restrictions
+    const script=document.createElement('script');
+    script.id=cbName;
+    script.src=fullUrl;
+    script.onerror=()=>{ cleanup(); reject(new Error('Script load failed')); };
+    document.head.appendChild(script);
+  });
 }
 
 // Auto-sync silently after saving a record (only if online)

@@ -1027,6 +1027,7 @@ function submitRegistration(){
   showStep(1);
   toast('✅ '+farmer.name+' registered!');
   showScreen('farmers');
+  autoSync();
 }
 
 function resetRegForm(){
@@ -1133,6 +1134,7 @@ function submitCollection(){
   resetCollectionForm();
   renderCollectionHistory();
   toast('✅ Collection saved — '+kg.toLocaleString()+' kg');
+  autoSync();
 }
 
 function resetCollectionForm(){
@@ -1447,6 +1449,36 @@ function resetAndSync(){
   updateSyncCounts();
   toast('All records marked for re-sync...');
   setTimeout(syncNow, 500);
+}
+
+// Auto-sync in background when a record is saved
+async function autoSync(){
+  const url=localStorage.getItem('rh_sheet_url');
+  if(!url || !navigator.onLine) return; // Silent — no toast if not configured or offline
+  try{
+    const farmers=DB.farmers;
+    for(let i=0;i<farmers.length;i++){
+      if(farmers[i].synced) continue;
+      const payload=encodeURIComponent(JSON.stringify({type:'farmer',data:farmers[i]}));
+      const r=await fetch(url+'?payload='+payload,{method:'GET',redirect:'follow'});
+      const json=JSON.parse(await r.text());
+      if(json.success){farmers[i].synced=true;}
+    }
+    DB.farmers=farmers;
+    const cols=DB.collections;
+    for(let i=0;i<cols.length;i++){
+      if(cols[i].synced) continue;
+      const payload=encodeURIComponent(JSON.stringify({type:'collection',data:cols[i]}));
+      const r=await fetch(url+'?payload='+payload,{method:'GET',redirect:'follow'});
+      const json=JSON.parse(await r.text());
+      if(json.success){cols[i].synced=true;}
+    }
+    DB.collections=cols;
+    updateDashboard();
+    renderFarmerList();
+  }catch(e){
+    // Silent fail — agent can manually sync later
+  }
 }
 
 function exportCSV(type){

@@ -1516,13 +1516,32 @@ async function syncNow(){
   }
 }
 
-// Force re-sync — resets all flags and pushes everything again
-function resetAndSync(){
-  if(!confirm('Re-send all records to Google Sheets? This will update any edited records.')) return;
-  // Only mark unsynced — don't reset collections (they cannot be updated, only new ones sent)
-  DB.farmers=DB.farmers.map(f=>({...f,synced:false}));
-  updateSyncCounts();
-  setTimeout(syncNow,300);
+// Force re-sync — sends a full replace to the sheet
+async function resetAndSync(){
+  if(!confirm('This will replace all farmer records in Google Sheets with the current app data. Continue?')) return;
+  if(!navigator.onLine) return toast('No internet connection');
+  const btn=document.querySelector('[onclick="resetAndSync()"]');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Cleaning...';}
+  toast('Replacing sheet data...');
+  try{
+    // Send a full_replace command with all current farmers
+    const farmers=DB.farmers.map(f=>{const d={...f};delete d.photoData;return d;});
+    await sendToSheets('full_replace',{farmers});
+    // Mark all as synced
+    DB.farmers=DB.farmers.map(f=>({...f,synced:true}));
+    // Also sync any unsynced collections normally
+    const cols=DB.collections;
+    for(let i=0;i<cols.length;i++){
+      if(cols[i].synced) continue;
+      try{await sendToSheets('collection',cols[i]);cols[i].synced=true;}catch(e){}
+    }
+    DB.collections=cols;
+    updateSyncCounts();updateDashboard();renderFarmerList();
+    toast('✅ Sheet replaced with '+farmers.length+' farmer(s)');
+  }catch(e){
+    toast('❌ '+e.message);
+  }
+  if(btn){btn.disabled=false;btn.textContent='🔄 Force re-sync all records';}
 }
 
 function exportCSV(type){

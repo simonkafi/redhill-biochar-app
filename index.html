@@ -1442,27 +1442,67 @@ async function syncNow(){
   if(!url) return toast('Save the Apps Script URL first');
   if(!navigator.onLine) return toast('No internet connection');
   const btn=document.querySelector('[onclick="syncNow()"]');
+  const statusEl=document.getElementById('sync-counts');
   if(btn){btn.disabled=true;btn.textContent='⏳ Syncing...';}
-  let ok=0,fail=0;
+  let ok=0,fail=0,lastErr='';
+
+  // First test: verify URL is reachable and returns correct response
+  try{
+    const test=await fetch(url,{method:'GET',redirect:'follow'});
+    const txt=await test.text();
+    const j=JSON.parse(txt);
+    if(!j.status||j.status!=='ok'){
+      if(btn){btn.disabled=false;btn.textContent='☁️ Sync all records now';}
+      if(statusEl) statusEl.innerHTML='<span style="color:#c0392b">❌ Script not responding correctly: '+txt.substring(0,80)+'</span>';
+      return toast('❌ Script error — see Sync tab');
+    }
+    if(!j.project||!j.project.includes('FINAL')){
+      if(btn){btn.disabled=false;btn.textContent='☁️ Sync all records now';}
+      if(statusEl) statusEl.innerHTML='<span style="color:#e67e22">⚠️ Old script still running ('+j.project+'). Please deploy new version.</span>';
+      return toast('⚠️ Old script — redeploy new version');
+    }
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='☁️ Sync all records now';}
+    if(statusEl) statusEl.innerHTML='<span style="color:#c0392b">❌ Cannot reach URL: '+e.message+'</span>';
+    return toast('❌ Cannot reach script URL');
+  }
+
   const farmers=DB.farmers;
   for(let i=0;i<farmers.length;i++){
     if(farmers[i].synced) continue;
-    try{ await sendToSheets('farmer',farmers[i]); farmers[i].synced=true; ok++; }
-    catch(e){ fail++; }
+    try{
+      await sendToSheets('farmer',farmers[i]);
+      farmers[i].synced=true; ok++;
+    }catch(e){ fail++; lastErr='Farmer: '+e.message; }
   }
   DB.farmers=farmers;
+
   const cols=DB.collections;
   for(let i=0;i<cols.length;i++){
     if(cols[i].synced) continue;
-    try{ await sendToSheets('collection',cols[i]); cols[i].synced=true; ok++; }
-    catch(e){ fail++; }
+    try{
+      await sendToSheets('collection',cols[i]);
+      cols[i].synced=true; ok++;
+    }catch(e){ fail++; lastErr='Collection: '+e.message; }
   }
   DB.collections=cols;
+
   if(btn){btn.disabled=false;btn.textContent='☁️ Sync all records now';}
   updateSyncCounts(); updateDashboard(); renderFarmerList();
-  if(ok>0) toast(ok+' record'+(ok!==1?'s':'')+' synced to Sheets ✅');
-  else if(fail>0) toast('❌ Sync failed — check URL and internet');
-  else toast('All records already synced ✅');
+
+  if(ok>0 && fail===0){
+    if(statusEl) statusEl.innerHTML='URL configured ✅<br><span style="color:#27ae60">✅ All records synced successfully</span>';
+    toast(ok+' record'+(ok!==1?'s':'')+' synced to Sheets ✅');
+  } else if(ok>0 && fail>0){
+    if(statusEl) statusEl.innerHTML='URL configured ✅<br><span style="color:#e67e22">⚠️ '+ok+' synced, '+fail+' failed: '+lastErr+'</span>';
+    toast(ok+' synced, '+fail+' failed');
+  } else if(fail>0){
+    if(statusEl) statusEl.innerHTML='URL configured ✅<br><span style="color:#c0392b">❌ Failed: '+lastErr+'</span>';
+    toast('❌ '+lastErr);
+  } else {
+    if(statusEl) statusEl.innerHTML='URL configured ✅<br><span style="color:#27ae60">✅ All records already synced</span>';
+    toast('All records already synced ✅');
+  }
 }
 
 // Force re-sync — resets all flags and pushes everything again

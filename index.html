@@ -1516,32 +1516,32 @@ async function syncNow(){
   }
 }
 
-// Force re-sync — sends a full replace to the sheet
+// Force re-sync — sends each farmer individually to update their rows
 async function resetAndSync(){
-  if(!confirm('This will replace all farmer records in Google Sheets with the current app data. Continue?')) return;
+  if(!confirm('Re-send all farmers to Google Sheets to fix any missing or outdated records?')) return;
   if(!navigator.onLine) return toast('No internet connection');
   const btn=document.querySelector('[onclick="resetAndSync()"]');
-  if(btn){btn.disabled=true;btn.textContent='⏳ Cleaning...';}
-  toast('Replacing sheet data...');
-  try{
-    // Send a full_replace command with all current farmers
-    const farmers=DB.farmers.map(f=>{const d={...f};delete d.photoData;return d;});
-    await sendToSheets('full_replace',{farmers});
-    // Mark all as synced
-    DB.farmers=DB.farmers.map(f=>({...f,synced:true}));
-    // Also sync any unsynced collections normally
-    const cols=DB.collections;
-    for(let i=0;i<cols.length;i++){
-      if(cols[i].synced) continue;
-      try{await sendToSheets('collection',cols[i]);cols[i].synced=true;}catch(e){}
-    }
-    DB.collections=cols;
-    updateSyncCounts();updateDashboard();renderFarmerList();
-    toast('✅ Sheet replaced with '+farmers.length+' farmer(s)');
-  }catch(e){
-    toast('❌ '+e.message);
+  if(btn){btn.disabled=true;btn.textContent='⏳ Syncing...';}
+  let ok=0,fail=0;
+  // Send every farmer regardless of synced flag — this updates existing rows
+  const farmers=DB.farmers;
+  for(let i=0;i<farmers.length;i++){
+    try{
+      await sendToSheets('farmer',farmers[i]);
+      farmers[i].synced=true;ok++;
+    }catch(e){fail++;}
   }
+  DB.farmers=farmers;
+  // Also send any unsynced collections
+  const cols=DB.collections;
+  for(let i=0;i<cols.length;i++){
+    if(cols[i].synced) continue;
+    try{await sendToSheets('collection',cols[i]);cols[i].synced=true;ok++;}catch(e){fail++;}
+  }
+  DB.collections=cols;
   if(btn){btn.disabled=false;btn.textContent='🔄 Force re-sync all records';}
+  updateSyncCounts();updateDashboard();renderFarmerList();
+  toast(ok+' record'+(ok!==1?'s':'')+' synced ✅'+(fail?' · '+fail+' failed':''));
 }
 
 function exportCSV(type){
